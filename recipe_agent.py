@@ -1,12 +1,41 @@
 # recipe_agent.py
-from openai import OpenAI
 import json
 from datetime import datetime
-import pandas as pd
+
+# Try to import OpenAI with fallback
+try:
+    from openai import OpenAI
+except ImportError:
+    try:
+        import openai
+        OpenAI = None  # Will use old API
+    except ImportError:
+        raise ImportError("OpenAI package not installed. Please install with: pip install openai")
 
 class RecipeAgent:
     def __init__(self, api_key):
-        self.client = OpenAI(api_key=api_key)
+        """Initialize the Recipe Agent with OpenAI API key"""
+        self.api_key = api_key
+        
+        # Try to initialize OpenAI client
+        if OpenAI is not None:
+            try:
+                self.client = OpenAI(api_key=api_key)
+                self.use_new_api = True
+            except Exception as e:
+                print(f"Failed to initialize OpenAI client: {e}")
+                self.client = None
+                self.use_new_api = False
+        else:
+            # Use old API
+            try:
+                import openai
+                openai.api_key = api_key
+                self.client = None
+                self.use_new_api = False
+            except Exception as e:
+                print(f"Failed to set OpenAI API key: {e}")
+        
         self.tools = [
             {
                 "type": "function",
@@ -155,57 +184,92 @@ class RecipeAgent:
         ]
         
         try:
-            # First interaction - decide what tools to use
-            response = self.client.chat.completions.create(
-                model="gpt-4",
-                messages=messages,
-                tools=self.tools,
-                tool_choice="auto"
-            )
-            
-            # Process tool calls
-            while response.choices[0].message.tool_calls:
-                # Execute tools
-                tool_calls = response.choices[0].message.tool_calls
-                messages.append(response.choices[0].message)
-                
-                for tool_call in tool_calls:
-                    function_name = tool_call.function.name
-                    function_args = json.loads(tool_call.function.arguments)
-                    
-                    # Execute the tool
-                    if hasattr(self, function_name):
-                        tool_result = getattr(self, function_name)(**function_args)
-                    else:
-                        tool_result = {"error": f"Tool {function_name} not implemented"}
-                    
-                    # Add tool result to conversation
-                    messages.append({
-                        "role": "tool",
-                        "content": json.dumps(tool_result),
-                        "tool_call_id": tool_call.id
-                    })
-                
-                # Get next response
+            if self.use_new_api and self.client:
+                # First interaction - decide what tools to use
                 response = self.client.chat.completions.create(
                     model="gpt-4",
                     messages=messages,
                     tools=self.tools,
                     tool_choice="auto"
                 )
-            
-            # Final recipe generation
-            final_recipe = response.choices[0].message.content
-            
-            # Store conversation history
-            self.conversation_history.append({
-                "meal_name": meal_name,
-                "timestamp": datetime.now(),
-                "recipe": final_recipe,
-                "tools_used": [tc.function.name for tc in tool_calls if hasattr(tc, 'function')]
-            })
-            
-            return final_recipe
-            
+                
+                # Process tool calls
+                while hasattr(response.choices[0].message, 'tool_calls') and response.choices[0].message.tool_calls:
+                    # Execute tools
+                    tool_calls = response.choices[0].message.tool_calls
+                    messages.append(response.choices[0].message)
+                    
+                    for tool_call in tool_calls:
+                        function_name = tool_call.function.name
+                        function_args = json.loads(tool_call.function.arguments)
+                        
+                        # Execute the tool
+                        if hasattr(self, function_name):
+                            tool_result = getattr(self, function_name)(**function_args)
+                        else:
+                            tool_result = {"error": f"Tool {function_name} not implemented"}
+                        
+                        # Add tool result to conversation
+                        messages.append({
+                            "role": "tool",
+                            "content": json.dumps(tool_result),
+                            "tool_call_id": tool_call.id
+                        })
+                    
+                    # Get next response
+                    response = self.client.chat.completions.create(
+                        model="gpt-4",
+                        messages=messages,
+                        tools=self.tools,
+                        tool_choice="auto"
+                    )
+                
+                # Final recipe generation
+                final_recipe = response.choices[0].message.content
+                
+                # Store conversation history
+                self.conversation_history.append({
+                    "meal_name": meal_name,
+                    "timestamp": datetime.now(),
+                    "recipe": final_recipe,
+                    "tools_used": [tc.function.name for tc in tool_calls if hasattr(tool_calls, 'function')]
+                })
+                
+                return final_recipe
+            else:
+                # Fallback to simpler recipe generation without tools for old API
+                prompt = f"""Generate a detailed vegetarian recipe for: {meal_name}
+
+Requirements:
+- Vegetarian (no meat, fish, poultry)
+- Suitable for pre-diabetic diet (low glycemic index, controlled carbs)
+- Include prep time, cook time, and servings
+- List ingredients with measurements
+- Provide step-by-step instructions
+- Include nutrition information
+
+Format the response as a complete recipe."""
+                
+                try:
+                    import openai
+                    response = openai.ChatCompletion.create(
+                        model="gpt-4",
+                        messages=[
+                            {"role": "system", "content": "You are a vegetarian cooking expert specializing in pre-diabetic nutrition."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=0.7,
+                        max_tokens=800
+                    )
+                    return response.choices[0].message.content
+                except Exception as e:
+                    return f"Error generating recipe (old API): {str(e)}"
+                
         except Exception as e:
-            return f"Error in recipe generation: {str(e)}"
+            # Fallback to simple error message
+            return f"""Error generating recipe: {str(e)}
+
+Basic Recipe for {meal_name}:
+- This is a placeholder recipe due to an error.
+- Try refreshing to generate a proper recipe.
+- Make sure you have a valid OpenAI API key."""
