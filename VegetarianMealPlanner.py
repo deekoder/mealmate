@@ -1,5 +1,5 @@
-# meal_planner.py
-import openai
+# VegetarianMealPlanner.py
+from openai import OpenAI
 import json
 from datetime import datetime, timedelta
 import os
@@ -7,7 +7,7 @@ import os
 class VegetarianMealPlanner:
     def __init__(self, openai_api_key):
         """Initialize the meal planner with OpenAI API key"""
-        openai.api_key = openai_api_key
+        self.client = OpenAI(api_key=openai_api_key)
         self.meal_plan = None
         self.grocery_list = None
         
@@ -37,9 +37,9 @@ CONTEXT:
 - Include bulk cooking strategies for weekends
 - Date range: {start_date.strftime('%B %d, %Y')} to {end_date.strftime('%B %d, %Y')}
 
-STRUCTURE YOUR OUTPUT AS FOLLOWS:
+IMPORTANT: Follow this EXACT template format for easy parsing:
 
-# WEEKLY VEGETARIAN MEAL PLAN
+# VEGETARIAN MEAL PLAN
 
 ## Week Overview
 Start Date: {start_date.strftime('%B %d, %Y')}
@@ -49,38 +49,36 @@ End Date: {end_date.strftime('%B %d, %Y')}
 
 {self._generate_daily_plan_template(start_date, end_date)}
 
-## Weekend Bulk Cooking Strategy
-Saturday:
-- [Bulk cooking tasks for Saturday]
+## Weekend Bulk Cooking
+[Saturday bulk cooking strategy]
+[Sunday bulk cooking strategy]
 
-Sunday:
-- [Bulk cooking tasks for Sunday]
-
-## Complete Grocery List
+## Grocery List
 ### Produce
-- [Item] - [Quantity]
-
+- Item 1
+- Item 2
 ### Proteins
-- [Item] - [Quantity]
+- Item 1
+- Item 2
+### Grains
+- Item 1
+- Item 2
+### Dairy
+- Item 1
+- Item 2
+### Pantry
+- Item 1
+- Item 2
+### Frozen
+- Item 1
+- Item 2
 
-### Grains & Legumes
-- [Item] - [Quantity]
+## Nutrition Summary
+- Weekly Protein: X g
+- Daily Carbs: X g
+- Key Nutrients: Item 1, Item 2
 
-### Dairy & Alternatives
-- [Item] - [Quantity]
-
-### Pantry Items
-- [Item] - [Quantity]
-
-### Frozen Items
-- [Item] - [Quantity]
-
-## Nutritional Highlights
-- Total weekly protein: [amount]
-- Average daily carbs: [amount]
-- Key nutrients addressed
-
-Ensure all recipes are:
+Ensure all meals are:
 1. Low glycemic index
 2. High in plant-based protein
 3. Rich in fiber
@@ -89,10 +87,11 @@ Ensure all recipes are:
 """
         
         try:
-            response = openai.ChatCompletion.create(
+            # Updated API call for OpenAI v1.0+
+            response = self.client.chat.completions.create(
                 model="gpt-4",
                 messages=[
-                    {"role": "system", "content": "You are a vegetarian meal planning expert specializing in pre-diabetic nutrition."},
+                    {"role": "system", "content": "You are a vegetarian meal planning expert specializing in pre-diabetic nutrition. Always follow the EXACT template format provided."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.7,
@@ -112,26 +111,27 @@ Ensure all recipes are:
         day_num = 1
         
         while current_date <= end_date:
-            day_template = f"""### Day {day_num}: {current_date.strftime('%A')}, {current_date.strftime('%B %d')}
+            # Simplified template for easier parsing
+            day_template = f"""### Day {day_num} - {current_date.strftime('%A, %B %d')}
 **Breakfast (7:00 AM)**
-- Meal Name: [Name]
-- Recipe: [Link or brief instructions]
-- Video Tutorial: [Video link if available]
-- Prep Time: [time]
-- Cook Time: [time]
-- Serving Size: [amount]
+- Meal: [Meal Name]
+- Time: 15-20 minutes
 
-**Mid-Morning Snack (10:00 AM)**
-[Same format]
+**Snack (10:00 AM)**
+- Meal: [Snack Name]
+- Time: 5 minutes
 
 **Lunch (12:30 PM)**
-[Same format]
+- Meal: [Meal Name]
+- Time: 20-25 minutes
 
-**Afternoon Snack (3:30 PM)**
-[Same format]
+**Snack (3:30 PM)**
+- Meal: [Snack Name]
+- Time: 5 minutes
 
 **Dinner (6:30 PM)**
-[Same format]
+- Meal: [Meal Name]
+- Time: 25-30 minutes
 """
             days.append(day_template)
             current_date += timedelta(days=1)
@@ -144,18 +144,18 @@ Ensure all recipes are:
         if not self.meal_plan:
             return "No meal plan generated yet."
         
-        # This is a simplified extraction - you might want to enhance this
+        # Extract between "## Grocery List" and "## Nutrition Summary"
         lines = self.meal_plan.split('\n')
         grocery_section = False
         grocery_list = []
         
         for line in lines:
-            if "Complete Grocery List" in line:
+            if "## Grocery List" in line:
                 grocery_section = True
                 continue
-            if "Nutritional Highlights" in line:
+            if "## Nutrition Summary" in line:
                 grocery_section = False
-            if grocery_section and line.strip() and line.startswith('-'):
+            if grocery_section and line.strip():
                 grocery_list.append(line.strip())
         
         self.grocery_list = '\n'.join(grocery_list)
