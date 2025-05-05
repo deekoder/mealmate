@@ -2,39 +2,32 @@
 import json
 from datetime import datetime
 
-# Try to import OpenAI with fallback
-try:
-    from openai import OpenAI
-except ImportError:
-    try:
-        import openai
-        OpenAI = None  # Will use old API
-    except ImportError:
-        raise ImportError("OpenAI package not installed. Please install with: pip install openai")
-
 class RecipeAgent:
     def __init__(self, api_key):
         """Initialize the Recipe Agent with OpenAI API key"""
         self.api_key = api_key
         
-        # Try to initialize OpenAI client
-        if OpenAI is not None:
-            try:
-                self.client = OpenAI(api_key=api_key)
-                self.use_new_api = True
-            except Exception as e:
-                print(f"Failed to initialize OpenAI client: {e}")
-                self.client = None
-                self.use_new_api = False
-        else:
-            # Use old API
+        # Handle OpenAI import and client initialization
+        try:
+            from openai import OpenAI
+            self.client = OpenAI(api_key=api_key)
+            self.use_new_api = True
+        except ImportError:
+            # OpenAI package not installed or old version
             try:
                 import openai
                 openai.api_key = api_key
                 self.client = None
                 self.use_new_api = False
-            except Exception as e:
-                print(f"Failed to set OpenAI API key: {e}")
+            except ImportError:
+                raise ImportError("OpenAI package not installed. Please install with: pip install openai")
+        except Exception as e:
+            # Error initializing OpenAI client
+            print(f"Error initializing OpenAI: {e}")
+            import openai
+            openai.api_key = api_key
+            self.client = None
+            self.use_new_api = False
         
         self.tools = [
             {
@@ -154,11 +147,18 @@ class RecipeAgent:
         for ingredient in ingredients:
             # Scale quantity if needed
             if any(char.isdigit() for char in ingredient):
-                scaled_ingredient = ingredient.replace(
-                    re.search(r'\d+', ingredient).group(),
-                    str(int(float(re.search(r'\d+', ingredient).group()) * people / 4))
-                )
-                shopping_list.append(scaled_ingredient)
+                try:
+                    match = re.search(r'\d+', ingredient)
+                    if match:
+                        scaled_ingredient = ingredient.replace(
+                            match.group(),
+                            str(int(float(match.group()) * people / 4))
+                        )
+                        shopping_list.append(scaled_ingredient)
+                    else:
+                        shopping_list.append(ingredient)
+                except:
+                    shopping_list.append(ingredient)
             else:
                 shopping_list.append(ingredient)
         
@@ -228,11 +228,17 @@ class RecipeAgent:
                 final_recipe = response.choices[0].message.content
                 
                 # Store conversation history
+                tool_calls_used = []
+                for msg in messages:
+                    if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                        for tc in msg.tool_calls:
+                            tool_calls_used.append(tc.function.name)
+                
                 self.conversation_history.append({
                     "meal_name": meal_name,
                     "timestamp": datetime.now(),
                     "recipe": final_recipe,
-                    "tools_used": [tc.function.name for tc in tool_calls if hasattr(tool_calls, 'function')]
+                    "tools_used": tool_calls_used
                 })
                 
                 return final_recipe

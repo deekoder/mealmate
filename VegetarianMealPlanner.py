@@ -1,5 +1,4 @@
 # VegetarianMealPlanner.py
-from openai import OpenAI
 import json
 from datetime import datetime, timedelta
 import os
@@ -7,7 +6,28 @@ import os
 class VegetarianMealPlanner:
     def __init__(self, openai_api_key):
         """Initialize the meal planner with OpenAI API key"""
-        self.client = OpenAI(api_key=openai_api_key)
+        # Handle OpenAI import and client initialization
+        try:
+            from openai import OpenAI
+            self.client = OpenAI(api_key=openai_api_key)
+            self.use_new_api = True
+        except ImportError:
+            # OpenAI package not installed or old version
+            try:
+                import openai
+                openai.api_key = openai_api_key
+                self.client = None
+                self.use_new_api = False
+            except ImportError:
+                raise ImportError("OpenAI package not installed. Please install with: pip install openai")
+        except Exception as e:
+            # Error initializing OpenAI client
+            print(f"Error initializing OpenAI: {e}")
+            import openai
+            openai.api_key = openai_api_key
+            self.client = None
+            self.use_new_api = False
+        
         self.meal_plan = None
         self.grocery_list = None
         
@@ -87,18 +107,32 @@ Ensure all meals are:
 """
         
         try:
-            # Updated API call for OpenAI v1.0+
-            response = self.client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": "You are a vegetarian meal planning expert specializing in pre-diabetic nutrition. Always follow the EXACT template format provided."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-                max_tokens=2500
-            )
+            if self.use_new_api and self.client:
+                # New API call
+                response = self.client.chat.completions.create(
+                    model="gpt-4",
+                    messages=[
+                        {"role": "system", "content": "You are a vegetarian meal planning expert specializing in pre-diabetic nutrition. Always follow the EXACT template format provided."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=2500
+                )
+                self.meal_plan = response.choices[0].message.content
+            else:
+                # Old API call
+                import openai
+                response = openai.ChatCompletion.create(
+                    model="gpt-4",
+                    messages=[
+                        {"role": "system", "content": "You are a vegetarian meal planning expert specializing in pre-diabetic nutrition. Always follow the EXACT template format provided."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=2500
+                )
+                self.meal_plan = response.choices[0].message.content
             
-            self.meal_plan = response.choices[0].message.content
             return self.meal_plan
             
         except Exception as e:
