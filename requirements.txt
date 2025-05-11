@@ -3,3 +3,9 @@ streamlit==1.31.0
 openai>=1.50.0
 pandas==2.2.2
 python-dotenv==1.0.1
+anthropic>=0.9.0  # For Claude evaluations
+mistralai>=0.1.0  # For Mistral evaluations
+google-generativeai>=0.3.0  # For Google Gemini evaluations
+matplotlib==3.8.2  # For data visualization
+plotly==5.18.0  # For interactive charts
+altair==5.2.0  # For Streamlit visualizations

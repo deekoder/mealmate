@@ -1,4 +1,4 @@
-/* styles.css */
+/* styles.css with evaluation styling */
 /* Compact font sizes */
 .stMarkdown h1 {
     font-size: 24px !important;
@@ -68,6 +68,9 @@
     font-weight: 600;
     color: #1a2b3c;
     margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
 }
 
 .recipe-info-meta {
@@ -91,6 +94,17 @@
 .recipe-status-badge {
     display: inline-block;
     padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    margin-left: 8px;
+}
+
+.recipe-score {
+    display: inline-block;
+    padding: 2px 8px;
+    background: #f0f9ff;
+    color: #0c4a6e;
     border-radius: 12px;
     font-size: 12px;
     font-weight: 500;
@@ -126,3 +140,204 @@
     line-height: 1.6;
     color: #374151;
     white-space: pre-wrap;
+}
+
+.recipe-section-divider {
+    height: 1px;
+    background: #e0e0e0;
+    margin: 24px 0;
+}
+
+/* Evaluation styling */
+.evaluation-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.evaluation-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1a2b3c;
+}
+
+.evaluation-score {
+    font-size: 24px;
+    font-weight: 700;
+    color: #4CAF50;
+}
+
+.evaluation-section {
+    background: #f8fafc;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+    border: 1px solid #e2e8f0;
+}
+
+.evaluation-section-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #334155;
+    margin-bottom: 8px;
+}
+
+.evaluation-category {
+    margin-bottom: 12px;
+}
+
+.evaluation-category-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #475569;
+    margin-bottom: 4px;
+}
+
+.evaluation-score-pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+    background: #ecfdf5;
+    color: #047857;
+    margin-left: 8px;
+}
+
+.evaluation-criterion {
+    margin-bottom: 8px;
+    padding: 8px;
+    border-radius: 4px;
+    background: #f1f5f9;
+}
+
+.evaluation-criterion-title {
+    font-size: 13px;
+    font-weight: 500;
+    color: #334155;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.evaluation-criterion-score {
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.evaluation-criterion-evidence {
+    font-size: 12px;
+    color: #64748b;
+    margin-top: 4px;
+}
+
+/* Section header styling */
+.section-header {
+    margin-bottom: 16px;
+}
+
+.section-subtitle {
+    font-size: 14px;
+    color: #6b7280;
+    margin-top: 4px;
+}
+
+/* Score gauge styling */
+.score-gauge {
+    position: relative;
+    width: 120px;
+    height: 120px;
+}
+
+.score-gauge-background {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: #e0e0e0;
+}
+
+.score-gauge-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    clip: rect(0, 60px, 120px, 0);
+    background: #4CAF50;
+    transform-origin: center;
+}
+
+.score-gauge-center {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    width: calc(100% - 20px);
+    height: calc(100% - 20px);
+    background: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+}
+
+.score-gauge-value {
+    font-size: 24px;
+    font-weight: bold;
+}
+
+.score-gauge-label {
+    font-size: 10px;
+}
+
+/* Strengths and Improvements sections */
+.feedback-section {
+    background: #f9fafb;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 12px;
+}
+
+.feedback-item {
+    margin-bottom: 8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.feedback-item:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.feedback-criterion {
+    font-weight: 600;
+    font-size: 14px;
+    color: #374151;
+    margin-bottom: 4px;
+}
+
+.feedback-evidence {
+    font-size: 13px;
+    color: #4b5563;
+}
+
+/* Responsive adjustments for small screens */
+@media (max-width: 768px) {
+    .recipe-info-title {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    
+    .recipe-score {
+        margin-left: 0;
+        margin-top: 4px;
+    }
+    
+    .stButton > button {
+        font-size: 12px !important;
+        padding: 0.4rem 0.6rem !important;
+    }
+}

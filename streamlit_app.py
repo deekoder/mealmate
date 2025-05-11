@@ -1,9 +1,24 @@
-# streamlit_app.py
 import streamlit as st
 from VegetarianMealPlanner import VegetarianMealPlanner
 from recipe_agent import RecipeAgent
 from utils import parse_meal_plan_to_dataframe, parse_grocery_list_to_dict, create_pivot_table, load_css
 from datetime import datetime, timedelta
+import json
+import traceback
+from recipe_evaluation import RecipeEvaluationManager, render_evaluation_ui
+
+# Helper function to create consistent unique IDs regardless of data source
+def generate_unique_id(row):
+    """Helper function to create consistent unique IDs regardless of data source"""
+    # Standardize the input values
+    day = str(row['Day']).strip()
+    meal = str(row['Meal']).strip().split('(')[0].strip()  # Remove any parenthetical content
+    meal_name = str(row['Meal Name']).strip()
+    
+    # Create a unique ID that will be consistent between different data sources
+    unique_id = f"{day}_{meal}_{meal_name[:20]}".replace(' ', '_')
+    
+    return unique_id
 
 st.set_page_config(
     page_title="Vegetarian Meal Planner",
@@ -14,13 +29,19 @@ st.set_page_config(
 # Load custom CSS
 load_css()
 
-# Add session state for recipes and reasoning
+# Add session state for recipes, reasoning, and evaluations
 if 'recipes' not in st.session_state:
     st.session_state.recipes = {}
 if 'recipe_agent' not in st.session_state:
     st.session_state.recipe_agent = None
 if 'show_reasoning' not in st.session_state:
     st.session_state.show_reasoning = False
+if 'meal_plan_data' not in st.session_state:
+    st.session_state.meal_plan_data = None
+if 'evaluations' not in st.session_state:
+    st.session_state.evaluations = {}
+if 'evaluation_manager' not in st.session_state:
+    st.session_state.evaluation_manager = None
 
 st.title("🥗 Vegetarian Meal Planner for Pre-Diabetics")
 st.markdown("""
@@ -84,6 +105,70 @@ with st.sidebar:
         options=["Simple", "Moderate", "Complex"],
         value="Moderate"
     )
+    
+    # Add evaluation settings
+    st.header("Evaluation Settings")
+    eval_provider = st.selectbox(
+        "Evaluation Provider",
+        options=["openai", "anthropic", "mistral", "google"],
+        index=0
+    )
+    
+    # Add model selection dropdown based on provider
+    if eval_provider == "openai":
+        openai_model = st.selectbox(
+            "OpenAI Model",
+            options=["gpt-4-turbo", "gpt-3.5-turbo", "gpt-4", "gpt-4-0613", "gpt-3.5-turbo-0613"],
+            index=0,  # Default to gpt-4-turbo which supports response_format
+            help="Select a model that supports JSON response format for best results"
+        )
+    elif eval_provider == "anthropic":
+        anthropic_model = st.selectbox(
+            "Anthropic Model",
+            options=["claude-3-opus-20240229", "claude-3-sonnet-20240229", "claude-3-haiku-20240307"],
+            index=0
+        )
+    elif eval_provider == "mistral":
+        mistral_model = st.selectbox(
+            "Mistral Model",
+            options=["mistral-medium", "mistral-large", "mistral-small"],
+            index=0
+        )
+    elif eval_provider == "google":
+        google_model = st.selectbox(
+            "Google Model",
+            options=["gemini-1.5-pro", "gemini-1.0-pro"],
+            index=0
+        )
+    
+    # Add evaluation toggle
+    enable_auto_evaluation = st.checkbox("Auto-evaluate recipes", value=True)
+    
+    # Initialize or update evaluation manager
+    if api_key:
+        # Get the model based on selected provider
+        selected_model = None
+        if eval_provider == "openai":
+            selected_model = openai_model
+        elif eval_provider == "anthropic":
+            selected_model = anthropic_model
+        elif eval_provider == "mistral":
+            selected_model = mistral_model
+        elif eval_provider == "google":
+            selected_model = google_model
+        
+        # Initialize or update evaluation manager with selected provider and model
+        try:
+            if (st.session_state.evaluation_manager is None or 
+                getattr(st.session_state.evaluation_manager, 'provider', None) != eval_provider or
+                getattr(st.session_state.evaluation_manager, 'model', None) != selected_model):
+                st.session_state.evaluation_manager = RecipeEvaluationManager(
+                    api_key, 
+                    provider=eval_provider,
+                    model=selected_model
+                )
+        except Exception as e:
+            st.error(f"Error initializing evaluation manager: {str(e)}")
 
 # Main content
 if api_key:
@@ -95,20 +180,35 @@ if api_key:
                 
                 # Use the CoT version of the meal planner if reasoning is enabled
                 if st.session_state.show_reasoning:
-                    meal_plan_data = planner.generate_meal_plan_with_cot(
-                        start_date=start_date, 
-                        end_date=end_date,
-                        complexity=meal_complexity
-                    )
-                    
-                    # Store the raw meal plan data for reasoning display
-                    st.session_state.meal_plan_data = meal_plan_data
-                    
-                    # The meal plan text is already set by the CoT method
-                    meal_plan = planner.meal_plan
+                    try:
+                        meal_plan_data = planner.generate_meal_plan_with_cot(
+                            start_date=start_date, 
+                            end_date=end_date,
+                            complexity=meal_complexity
+                        )
+                        
+                        # Store the raw meal plan data for reasoning display
+                        st.session_state.meal_plan_data = meal_plan_data
+                        
+                        # The meal plan text is already set by the CoT method
+                        meal_plan = planner.meal_plan
+                        
+                        # Print debug info
+                        print("CoT meal plan data keys:", meal_plan_data.keys())
+                        if "days" in meal_plan_data:
+                            print(f"Number of days: {len(meal_plan_data['days'])}")
+                            if meal_plan_data["days"]:
+                                print(f"First day keys: {meal_plan_data['days'][0].keys()}")
+                    except Exception as e:
+                        st.error(f"Error in CoT generation: {str(e)}")
+                        st.error(traceback.format_exc())
+                        # Fallback to regular meal plan
+                        meal_plan = planner.generate_meal_plan(start_date=start_date, end_date=end_date)
+                        st.session_state.meal_plan_data = None
                 else:
                     # Use the original method if reasoning is not needed
                     meal_plan = planner.generate_meal_plan(start_date=start_date, end_date=end_date)
+                    st.session_state.meal_plan_data = None
                 
                 grocery_list = planner.extract_grocery_list()
                 
@@ -122,16 +222,15 @@ if api_key:
             except Exception as e:
                 st.error(f"Error: {str(e)}")
                 st.error(f"Error details: {type(e).__name__}")
-                import traceback
                 st.error(traceback.format_exc())
-    
+
     # Display meal plan if it exists
     if 'meal_plan' in st.session_state and st.session_state.meal_plan:
         st.markdown("## 📅 Your Weekly Meal Plan")
         st.markdown(f"**Period:** {start_date.strftime('%B %d, %Y')} to {end_date.strftime('%B %d, %Y')}")
         
         # Display reasoning if enabled and available
-        if st.session_state.show_reasoning and 'meal_plan_data' in st.session_state:
+        if st.session_state.show_reasoning and 'meal_plan_data' in st.session_state and st.session_state.meal_plan_data:
             reasoning_data = st.session_state.meal_plan_data.get('reasoning', {})
             
             if reasoning_data:
@@ -213,7 +312,7 @@ if api_key:
                             """
                         
                         st.markdown(str(variety_text))
-        
+
         # Parse and display meal plan as table
         try:
             df_meals = parse_meal_plan_to_dataframe(st.session_state.meal_plan)
@@ -221,11 +320,16 @@ if api_key:
             # Display table
             if not df_meals.empty:
                 try:
-                    # Create a unique identifier for each meal
-                    df_meals['unique_id'] = df_meals.apply(
-                        lambda row: f"{row['Day']}_{row['Meal']}_{row['Meal Name'][:20]}".replace(' ', '_'),
-                        axis=1
-                    )
+                    # Create a unique identifier for each meal - UPDATED to use the generate_unique_id function
+                    df_meals['unique_id'] = df_meals.apply(generate_unique_id, axis=1)
+                    
+                    # Add debugging info if reasoning is enabled (can be removed in production)
+                    if st.session_state.show_reasoning and st.session_state.recipes:
+                        with st.expander("Debug Information", expanded=False):
+                            st.write(f"Number of meals in table: {len(df_meals)}")
+                            st.write(f"Number of recipes stored: {len(st.session_state.recipes)}")
+                            st.write(f"Recipe keys: {list(st.session_state.recipes.keys())[:5]}")
+                            st.write(f"Table unique_ids: {df_meals['unique_id'].tolist()[:5]}")
                     
                     # Create and display pivot table
                     pivot_df = create_pivot_table(df_meals)
@@ -239,7 +343,7 @@ if api_key:
                 st.markdown("""
                 <div class="section-header">
                     <h2>👨‍🍳 Recipe Generation</h2>
-                    <p class="section-subtitle">Generate detailed recipes for each meal</p>
+                    <p class="section-subtitle">Generate detailed recipes and evaluate them against our rubric</p>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -247,10 +351,17 @@ if api_key:
                 for idx, (_, meal) in enumerate(df_meals.iterrows()):
                     try:
                         # Create recipe list item
+                        meal_score = ""
+                        if meal['unique_id'] in st.session_state.evaluations:
+                            eval_result = st.session_state.evaluations[meal['unique_id']]
+                            if "score_breakdown" in eval_result and "final_score" in eval_result["score_breakdown"]:
+                                final_score = eval_result["score_breakdown"]["final_score"]
+                                meal_score = f"<span class='recipe-score'>Score: {final_score:.1f}/5.0</span>"
+                        
                         st.markdown(f"""
                         <div class="recipe-list-item">
                             <div class="recipe-info">
-                                <div class="recipe-info-title">{meal['Meal Name']}</div>
+                                <div class="recipe-info-title">{meal['Meal Name']} {meal_score}</div>
                                 <div class="recipe-info-meta">{meal['Day']} • {meal['Meal'].split('(')[0].strip()}</div>
                             </div>
                         </div>
@@ -271,12 +382,34 @@ if api_key:
                                     if st.session_state.recipe_agent:
                                         recipe = st.session_state.recipe_agent.generate_recipe(meal['Meal Name'])
                                         st.session_state.recipes[meal['unique_id']] = recipe
+                                        
+                                        # Auto-evaluate if enabled
+                                        if enable_auto_evaluation and st.session_state.evaluation_manager:
+                                            with st.spinner("Evaluating recipe..."):
+                                                try:
+                                                    eval_result = st.session_state.evaluation_manager.evaluate_recipe(recipe)
+                                                    st.session_state.evaluations[meal['unique_id']] = eval_result
+                                                except Exception as e:
+                                                    st.error(f"Evaluation error: {str(e)}")
+                                        
                                         st.rerun()
                         
                         with col2:
-                            # Watch Video button (placeholder for future implementation)
-                            if st.button("Watch Video", key=f"video_{unique_key}", disabled=True, use_container_width=True):
-                                st.info("Coming soon! Video tutorials will be available here.")
+                            # Evaluate Recipe button
+                            eval_button_text = "Evaluate" if meal['unique_id'] not in st.session_state.evaluations else "Re-evaluate"
+                            eval_button_disabled = meal['unique_id'] not in st.session_state.recipes
+                            
+                            if st.button(eval_button_text, key=f"eval_{unique_key}", disabled=eval_button_disabled, use_container_width=True):
+                                if st.session_state.evaluation_manager and meal['unique_id'] in st.session_state.recipes:
+                                    with st.spinner("Evaluating recipe..."):
+                                        try:
+                                            eval_result = st.session_state.evaluation_manager.evaluate_recipe(
+                                                st.session_state.recipes[meal['unique_id']]
+                                            )
+                                            st.session_state.evaluations[meal['unique_id']] = eval_result
+                                            st.rerun()
+                                        except Exception as e:
+                                            st.error(f"Evaluation error: {str(e)}")
                         
                         with col3:
                             # Copy to Clipboard button (only show if recipe exists)
@@ -288,15 +421,27 @@ if api_key:
                                     st.code(st.session_state.recipes[meal['unique_id']], language="text")
                         
                         with col4:
-                            # Status indicator
-                            if meal['unique_id'] in st.session_state.recipes:
+                            # Status indicator with evaluation score if available
+                            if meal['unique_id'] in st.session_state.evaluations:
+                                eval_result = st.session_state.evaluations[meal['unique_id']]
+                                if "score_breakdown" in eval_result and "final_score" in eval_result["score_breakdown"]:
+                                    final_score = eval_result["score_breakdown"]["final_score"]
+                                    # Color-code based on score
+                                    score_color = "#4CAF50" if final_score >= 4.0 else "#FFC107" if final_score >= 3.0 else "#F44336"
+                                    st.markdown(f'<span class="recipe-status-badge" style="background-color: {score_color};">Score: {final_score:.1f}/5.0</span>', unsafe_allow_html=True)
+                                else:
+                                    st.markdown('<span class="recipe-status-badge status-ready-badge">✓ Recipe Evaluated</span>', unsafe_allow_html=True)
+                            elif meal['unique_id'] in st.session_state.recipes:
                                 st.markdown('<span class="recipe-status-badge status-ready-badge">✓ Recipe Ready</span>', unsafe_allow_html=True)
                             else:
                                 st.markdown('<span class="recipe-status-badge status-pending-badge">Not Generated</span>', unsafe_allow_html=True)
                         
-                        # Display recipe if it exists
+                        # Display recipe and evaluation if they exist
                         if meal['unique_id'] in st.session_state.recipes:
-                            with st.expander("📖 View Recipe", expanded=False):
+                            # Create tabs for recipe and evaluation
+                            recipe_tabs = st.tabs(["📖 Recipe", "📊 Evaluation"])
+                            
+                            with recipe_tabs[0]:
                                 st.markdown(f"""
                                 <div class="recipe-content-wrapper">
                                     <div class="recipe-content-text">
@@ -314,6 +459,36 @@ if api_key:
                                     key=f"download_{meal['unique_id']}",
                                     use_container_width=True
                                 )
+                            
+                            with recipe_tabs[1]:
+                                if meal['unique_id'] in st.session_state.evaluations:
+                                    # Render evaluation UI
+                                    eval_result = st.session_state.evaluations[meal['unique_id']]
+                                    render_evaluation_ui(eval_result)
+                                    
+                                    # Add download button for evaluation
+                                    st.download_button(
+                                        label="⬇️ Download Evaluation Report",
+                                        data=str(eval_result),
+                                        file_name=f"evaluation_{meal['Meal Name'].replace(' ', '_')}.json",
+                                        mime="application/json",
+                                        key=f"download_eval_{meal['unique_id']}",
+                                        use_container_width=True
+                                    )
+                                else:
+                                    st.info("No evaluation data available. Click the 'Evaluate' button to analyze this recipe.")
+                                    
+                                    if st.button("Run Evaluation Now", key=f"quick_eval_{meal['unique_id']}"):
+                                        if st.session_state.evaluation_manager:
+                                            with st.spinner("Evaluating recipe..."):
+                                                try:
+                                                    eval_result = st.session_state.evaluation_manager.evaluate_recipe(
+                                                        st.session_state.recipes[meal['unique_id']]
+                                                    )
+                                                    st.session_state.evaluations[meal['unique_id']] = eval_result
+                                                    st.rerun()
+                                                except Exception as e:
+                                                    st.error(f"Evaluation error: {str(e)}")
                     except Exception as e:
                         st.error(f"Error displaying recipe card: {str(e)}")
                     
@@ -323,11 +498,78 @@ if api_key:
                 # Add divider before next section
                 st.markdown('<div class="recipe-section-divider"></div>', unsafe_allow_html=True)
                 
+                # Add summary of evaluations if any exist
+                if hasattr(st.session_state, 'evaluations') and st.session_state.evaluations:
+                    st.markdown("### 🏆 Recipe Evaluation Summary")
+                    
+                    # Calculate average scores and best recipes
+                    eval_data = []
+                    best_recipe = {"meal_id": None, "score": 0, "name": None}
+                    worst_recipe = {"meal_id": None, "score": 5, "name": None}
+                    total_score = 0
+                    count = 0
+                    
+                    for meal_id, eval_result in st.session_state.evaluations.items():
+                        if "score_breakdown" in eval_result and "final_score" in eval_result["score_breakdown"]:
+                            # Find the meal name from df_meals
+                            meal_name = None
+                            for _, meal in df_meals.iterrows():
+                                if meal['unique_id'] == meal_id:
+                                    meal_name = meal['Meal Name']
+                                    break
+                            
+                            score = eval_result["score_breakdown"]["final_score"]
+                            
+                            # Track best and worst recipes
+                            if score > best_recipe["score"]:
+                                best_recipe = {"meal_id": meal_id, "score": score, "name": meal_name}
+                            
+                            if score < worst_recipe["score"]:
+                                worst_recipe = {"meal_id": meal_id, "score": score, "name": meal_name}
+                            
+                            # Add to totals for average
+                            total_score += score
+                            count += 1
+                            
+                            # Build data for summary table
+                            interpretation = eval_result.get("feedback", {}).get("interpretation", "")
+                            eval_data.append({
+                                "Meal": meal_name,
+                                "Score": f"{score:.1f}/5.0",
+                                "Rating": interpretation
+                            })
+                    
+                    # Display evaluation summary metrics
+                    if count > 0:
+                        avg_score = total_score / count
+                        
+                        # Create metric cards in columns
+                        col1, col2, col3, col4 = st.columns(4)
+                        
+                        with col1:
+                            st.metric("Recipes Evaluated", count)
+                        
+                        with col2:
+                            st.metric("Average Score", f"{avg_score:.1f}")
+                        
+                        with col3:
+                            if best_recipe["name"]:
+                                st.metric("Best Recipe", f"{best_recipe['score']:.1f}", best_recipe["name"])
+                        
+                        with col4:
+                            if count > 1 and worst_recipe["name"]:  # Only show worst if more than 1 recipe
+                                st.metric("Needs Most Improvement", f"{worst_recipe['score']:.1f}", worst_recipe["name"])
+                        
+                        # Display evaluation summary table
+                        if eval_data:
+                            st.dataframe(eval_data, use_container_width=True, hide_index=True)
+
             else:
                 st.warning("Could not parse the meal plan into a table. Showing raw text:")
                 st.text(st.session_state.meal_plan)
         except Exception as e:
             st.error(f"Error parsing meal plan: {str(e)}")
+            st.error(traceback.format_exc())
             st.text(st.session_state.meal_plan)
         
         # Download buttons
@@ -348,18 +590,99 @@ if api_key:
                 mime="text/plain"
             )
         
-        # Recipe export
+        # Recipe and evaluation export options
         if st.session_state.recipes:
             with col3:
-                all_recipes = "\n\n".join([f"## {meal_id}\n{recipe}" for meal_id, recipe in st.session_state.recipes.items()])
-                st.download_button(
-                    label="📥 All Recipes",
-                    data=all_recipes,
-                    file_name=f"all_recipes_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.txt",
-                    mime="text/plain"
+                # Create a dropdown for download options
+                download_option = st.selectbox(
+                    "Choose download option",
+                    ["All Recipes", "All Evaluations", "Complete Report"],
+                    key="download_option"
                 )
+                
+                if download_option == "All Recipes":
+                    all_recipes = "\n\n".join([f"## {meal_id}\n{recipe}" for meal_id, recipe in st.session_state.recipes.items()])
+                    st.download_button(
+                        label="📥 Download All Recipes",
+                        data=all_recipes,
+                        file_name=f"all_recipes_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.txt",
+                        mime="text/plain"
+                    )
+                elif download_option == "All Evaluations" and hasattr(st.session_state, 'evaluations') and st.session_state.evaluations:
+                    import json
+                    all_evaluations = json.dumps(st.session_state.evaluations, indent=2)
+                    st.download_button(
+                        label="📥 Download All Evaluations",
+                        data=all_evaluations,
+                        file_name=f"all_evaluations_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.json",
+                        mime="application/json"
+                    )
+                elif download_option == "Complete Report":
+                    # Generate comprehensive report with recipes and evaluations
+                    report = f"# Vegetarian Pre-Diabetic Meal Plan Report\n\n"
+                    report += f"Period: {start_date.strftime('%B %d, %Y')} to {end_date.strftime('%B %d, %Y')}\n\n"
+                    
+                    # Add meal plan overview
+                    report += "## Meal Plan Overview\n\n"
+                    report += st.session_state.meal_plan
+                    
+                    # Add recipes with evaluations
+                    report += "\n\n## Recipes and Evaluations\n\n"
+                    
+                    for meal_id, recipe in st.session_state.recipes.items():
+                        # Find meal name
+                        meal_name = "Unnamed Recipe"
+                        meal_day = "Unknown Day"
+                        meal_type = "Unknown Meal"
+                        for _, meal in df_meals.iterrows():
+                            if meal['unique_id'] == meal_id:
+                                meal_name = meal['Meal Name']
+                                meal_day = meal['Day']
+                                meal_type = meal['Meal']
+                                break
+                        
+                        report += f"### {meal_name} ({meal_day}, {meal_type})\n\n"
+                        
+                        # Add evaluation summary if available
+                        if meal_id in st.session_state.evaluations:
+                            eval_result = st.session_state.evaluations[meal_id]
+                            if "score_breakdown" in eval_result and "final_score" in eval_result["score_breakdown"]:
+                                score = eval_result["score_breakdown"]["final_score"]
+                                interpretation = eval_result.get("feedback", {}).get("interpretation", "")
+                                report += f"**Evaluation Score:** {score:.1f}/5.0 - {interpretation}\n\n"
+                                
+                                # Add strengths
+                                report += "**Strengths:**\n"
+                                strengths = eval_result.get("feedback", {}).get("strengths", [])
+                                if strengths:
+                                    for strength in strengths:
+                                        criterion = strength.get("criterion", "")
+                                        report += f"- {criterion}\n"
+                                else:
+                                    report += "- No specific strengths highlighted\n"
+                                
+                                report += "\n"
+                        
+                        # Add the recipe itself
+                        report += "**Recipe:**\n\n"
+                        report += recipe
+                        report += "\n\n---\n\n"
+                    
+                    # Add grocery list
+                    report += "## Grocery List\n\n"
+                    report += st.session_state.grocery_list
+                    
+                    # Download the complete report
+                    st.download_button(
+                        label="📥 Download Complete Report",
+                        data=report,
+                        file_name=f"complete_report_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.md",
+                        mime="text/markdown"
+                    )
+                else:
+                    st.warning("No evaluations available to download.")
+         # Display grocery list as organized sections
         
-        # Display grocery list as organized sections
         st.markdown("## 🛒 Grocery List")
         try:
             grocery_categories = parse_grocery_list_to_dict(st.session_state.grocery_list)
@@ -420,10 +743,9 @@ if api_key:
             
             with col4:
                 try:
-                    if st.session_state.recipes:
-                        st.metric("Recipes Generated", len(st.session_state.recipes))
-                    else:
-                        st.metric("Recipes Generated", 0)
+                    recipes_count = len(st.session_state.recipes) if hasattr(st.session_state, 'recipes') else 0
+                    evals_count = len(st.session_state.evaluations) if hasattr(st.session_state, 'evaluations') else 0
+                    st.metric("Recipes Generated", f"{recipes_count} ({evals_count} evaluated)")
                 except Exception as e:
                     st.metric("Recipes Generated", 0)
         except Exception as e:
@@ -433,4 +755,5 @@ else:
 
 # Footer
 st.markdown("---")
-st.markdown("*Created for AI Class Project | MIT License*")
+st.markdown("*Created for AI Class Project | MIT License*")# streamlit_app.py
+import streamlit as st

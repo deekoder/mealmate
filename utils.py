@@ -2,6 +2,7 @@
 import re
 import pandas as pd
 import streamlit as st  # Added import for streamlit
+import os
 
 
 def parse_meal_plan_to_dataframe(meal_plan_text):
