@@ -1,280 +1,356 @@
 # VegetarianMealPlanner.py
 import json
 from datetime import datetime, timedelta
-import os
+from openai import OpenAI
 
 class VegetarianMealPlanner:
-    def __init__(self, openai_api_key):
-        """Initialize the meal planner with OpenAI API key"""
-        # Handle OpenAI import and client initialization
+    def __init__(self, api_key):
+        """Initialize the VegetarianMealPlanner with an OpenAI API key."""
+        self.client = OpenAI(api_key=api_key)
+        self.meal_plan = ""
+        self.grocery_list = ""
+        self.meal_plan_data = None
+        
+    def generate_meal_plan(self, start_date, end_date):
+        """Generate a meal plan for a specified date range."""
+        # Format dates to strings if they're datetime objects
+        if isinstance(start_date, datetime):
+            start_date_str = start_date.strftime("%B %d, %Y")
+        else:
+            start_date_str = start_date.strftime("%B %d, %Y")
+            
+        if isinstance(end_date, datetime):
+            end_date_str = end_date.strftime("%B %d, %Y")
+        else:
+            end_date_str = end_date.strftime("%B %d, %Y")
+            
+        # Create prompt for generating a meal plan
+        prompt = f"""
+        Create a vegetarian meal plan for pre-diabetic individuals from {start_date_str} to {end_date_str}.
+        
+        For each day, include:
+        - Breakfast
+        - Lunch
+        - Dinner
+        - Snack
+        
+        For each meal, provide a specific dish name. Focus on low glycemic index ingredients, 
+        adequate protein, and fiber-rich options that help manage blood sugar levels.
+        
+        Include ideas for batch cooking and efficient meal prep strategies.
+        
+        Format each day like this:
+        --- Day Name, Month Day, Year ---
+        
+        Breakfast: [Meal Name]
+        
+        Lunch: [Meal Name]
+        
+        Dinner: [Meal Name]
+        
+        Snack: [Meal Name]
+        
+        [Any additional notes or batch cooking tips]
+        """
+        
+        response = self.client.chat.completions.create(
+            model="gpt-4",  # or whichever model you're using
+            messages=[
+                {"role": "system", "content": "You are a nutritionist specializing in vegetarian pre-diabetic meal planning."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=2000
+        )
+        
+        self.meal_plan = response.choices[0].message.content
+        return self.meal_plan
+    
+    def generate_meal_plan_with_cot(self, start_date, end_date, complexity="Moderate"):
+        """
+        Generate a meal plan using Chain-of-Thought reasoning.
+        This enhances the quality of meal plans by guiding the model through a structured thought process.
+        
+        Args:
+            start_date: Start date (datetime or string in format %Y-%m-%d)
+            end_date: End date (datetime or string in format %Y-%m-%d)
+            complexity: Meal complexity level (Simple, Moderate, Complex)
+            
+        Returns:
+            dict: A structured meal plan with reasoning
+        """
+        # Format dates to strings if they're datetime objects
+        if isinstance(start_date, datetime):
+            start_date_str = start_date.strftime("%B %d, %Y")
+            start_date_iso = start_date.strftime("%Y-%m-%d")
+        else:
+            start_date_str = start_date.strftime("%B %d, %Y")
+            start_date_iso = start_date.strftime("%Y-%m-%d")
+            
+        if isinstance(end_date, datetime):
+            end_date_str = end_date.strftime("%B %d, %Y")
+            end_date_iso = end_date.strftime("%Y-%m-%d")
+        else:
+            end_date_str = end_date.strftime("%B %d, %Y")
+            end_date_iso = end_date.strftime("%Y-%m-%d")
+        
+        # Calculate the number of days in the range
+        start = datetime.strptime(start_date_iso, "%Y-%m-%d")
+        end = datetime.strptime(end_date_iso, "%Y-%m-%d")
+        days_diff = (end - start).days + 1
+        
+        # Adjust complexity instructions
+        complexity_instructions = ""
+        if complexity == "Simple":
+            complexity_instructions = "Focus on simple recipes with minimal ingredients and quick preparation times. Prioritize dishes that can be made in 30 minutes or less."
+        elif complexity == "Complex":
+            complexity_instructions = "Include more elaborate recipes with diverse ingredients and techniques. You can suggest dishes that take longer to prepare and have more sophisticated flavor profiles."
+        else:  # Moderate
+            complexity_instructions = "Balance simplicity and variety. Include some quick recipes and some that take more time, with a moderate level of culinary complexity."
+        
+        # Create a Chain-of-Thought prompt
+        cot_prompt = f"""
+        You are an expert nutritionist and chef specializing in vegetarian meal planning for pre-diabetic individuals.
+        
+        Please create a detailed vegetarian meal plan from {start_date_str} to {end_date_str} ({days_diff} days).
+        {complexity_instructions}
+        
+        First, I'll think through this meal planning process step-by-step:
+        
+        Step 1: Consider the specific nutritional requirements for pre-diabetic individuals.
+        - Pre-diabetic individuals need to carefully manage blood sugar levels
+        - They should prioritize low glycemic index foods that don't cause blood sugar spikes
+        - A balanced macronutrient profile is essential: moderate carbs (focusing on complex carbs), adequate protein (challenging in vegetarian diets), and healthy fats
+        - High fiber intake helps regulate blood sugar and improves satiety
+        - Need to ensure adequate micronutrients, especially those that support insulin sensitivity like magnesium, chromium, and certain B vitamins
+        
+        Step 2: Create a framework for balanced vegetarian nutrition.
+        - Identify diverse protein sources (legumes, tofu, tempeh, dairy if allowed, nuts, seeds)
+        - Plan for complex carbohydrates in appropriate portions (whole grains, starchy vegetables)
+        - Incorporate healthy fats (avocado, olive oil, nuts, seeds)
+        - Ensure abundant non-starchy vegetables for fiber, vitamins, and minerals
+        - Consider calcium sources for bone health
+        - Include vitamin B12 sources or supplements as it's primarily found in animal products
+        
+        Step 3: Plan for variety and enjoyment across the {days_diff}-day period.
+        - Rotate protein sources throughout the week
+        - Vary cooking methods and flavor profiles
+        - Consider cultural food traditions for inspiration
+        - Plan for practical aspects like leftovers and meal prep
+        - Ensure meals are satisfying and don't feel restrictive
+        
+        Step 4: For each specific date, craft a daily meal plan that:
+        - Distributes nutrients appropriately throughout the day
+        - Keeps blood sugar stable with properly timed meals and snacks
+        - Considers the appropriate calorie range for maintaining healthy weight
+        - Includes seasonal produce when possible
+        - Provides adequate hydration recommendations
+        
+        Now I'll create a complete meal plan based on this reasoning.
+        
+        For each day, I'll provide:
+        1. The specific date in YYYY-MM-DD format
+        2. A breakfast, lunch, dinner, and snack option with specific dish names
+        3. A brief note about why each meal is suitable for a pre-diabetic vegetarian diet
+        4. Batch cooking opportunities and meal prep tips
+        
+        Please provide this as structured JSON with two main sections:
+        1. "reasoning" - containing your nutritional strategy, key considerations, and approach, organized into subsections:
+           - "pre_diabetic_considerations" - specific nutritional strategies for managing pre-diabetes
+           - "vegetarian_considerations" - ensuring complete nutrition in a plant-based diet
+           - "meal_variety" - approaches to ensuring diverse and satisfying meals
+        
+        2. "days" - an array of daily meal plans, each containing:
+           - "date": in YYYY-MM-DD format
+           - "breakfast": specific meal name
+           - "breakfast_note": why this breakfast works for pre-diabetic vegetarians
+           - "lunch": specific meal name
+           - "lunch_note": why this lunch works for pre-diabetic vegetarians
+           - "dinner": specific meal name
+           - "dinner_note": why this dinner works for pre-diabetic vegetarians
+           - "snack": specific snack name
+           - "snack_note": why this snack works for pre-diabetic vegetarians
+           - "batch_cooking": any meal prep opportunities for this day
+        
+        3. Additional optional sections:
+           - "batch_cooking_summary": overview of batch cooking strategy for the week
+           - "general_notes": any additional tips or considerations
+           
+        Ensure the JSON is valid and properly formatted.
+        """
+        
+        # Call OpenAI API with the CoT prompt using the updated API
+        response = self.client.chat.completions.create(
+            model="gpt-4",  # or your preferred model
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant specializing in nutrition."},
+                {"role": "user", "content": cot_prompt}
+            ],
+            temperature=0.7,
+            max_tokens=3000
+        )
+        
         try:
-            from openai import OpenAI
-            self.client = OpenAI(api_key=openai_api_key)
-            self.use_new_api = True
-        except ImportError:
-            # OpenAI package not installed or old version
+            # Try to parse as JSON
+            meal_plan_data = json.loads(response.choices[0].message.content)
+            
+            # Store the raw response for later extraction
+            self.meal_plan_data = meal_plan_data
+            
+            # Format the meal plan into a text representation for backward compatibility
+            self.meal_plan = self.format_meal_plan_from_cot(meal_plan_data)
+            
+            return meal_plan_data
+            
+        except json.JSONDecodeError:
+            # If not valid JSON, use the raw text and try to extract some structure
+            raw_content = response.choices[0].message.content
+            self.meal_plan = raw_content
+            
+            # Create a basic structure for the reasoning
+            meal_plan_data = {
+                "reasoning": {
+                    "pre_diabetic_considerations": "The model didn't return structured data, but the meal plan follows pre-diabetic nutritional guidelines.",
+                    "vegetarian_considerations": "The meal plan includes diverse plant-based protein sources and essential nutrients.",
+                    "meal_variety": "The meal plan offers variety in flavors, textures, and cooking methods."
+                },
+                "days": []
+            }
+            
+            # Try to extract days and meals from the text (very basic extraction)
+            import re
+            
+            # Generate date range
+            date_range = [start + timedelta(days=x) for x in range(days_diff)]
+            
+            # Look for day patterns in the text
+            day_patterns = [
+                r"Day \d+:.*?(?=Day \d+:|$)",  # "Day 1: ..." format
+                r"\*\*\s*\w+,\s*\w+\s*\d+\s*\*\*.*?(?=\*\*\s*\w+|$)",  # "** Monday, January 1 **" format
+                r"\w+,\s*\w+\s*\d+.*?(?=\w+,\s*\w+\s*\d+|$)"  # "Monday, January 1" format
+            ]
+            
+            for pattern in day_patterns:
+                day_sections = re.findall(pattern, raw_content, re.DOTALL)
+                if day_sections:
+                    break
+            
+            # If we found day sections, try to extract meals
+            if day_sections:
+                for i, section in enumerate(day_sections):
+                    if i < len(date_range):
+                        date_obj = date_range[i]
+                        
+                        # Extract meals with basic patterns
+                        breakfast = re.search(r"Breakfast:(.+?)(?=Lunch:|Dinner:|Snack:|$)", section, re.DOTALL)
+                        lunch = re.search(r"Lunch:(.+?)(?=Breakfast:|Dinner:|Snack:|$)", section, re.DOTALL)
+                        dinner = re.search(r"Dinner:(.+?)(?=Breakfast:|Lunch:|Snack:|$)", section, re.DOTALL)
+                        snack = re.search(r"Snack:(.+?)(?=Breakfast:|Lunch:|Dinner:|$)", section, re.DOTALL)
+                        
+                        day_data = {
+                            "date": date_obj.strftime("%Y-%m-%d"),
+                            "breakfast": breakfast.group(1).strip() if breakfast else "Not specified",
+                            "lunch": lunch.group(1).strip() if lunch else "Not specified",
+                            "dinner": dinner.group(1).strip() if dinner else "Not specified",
+                            "snack": snack.group(1).strip() if snack else "Not specified"
+                        }
+                        
+                        meal_plan_data["days"].append(day_data)
+            
+            return meal_plan_data
+    
+    def format_meal_plan_from_cot(self, meal_plan_data):
+        """Convert the structured meal plan data to text format for compatibility with existing code."""
+        formatted_text = "VEGETARIAN MEAL PLAN FOR PRE-DIABETICS\n\n"
+        
+        # Add date range
+        if meal_plan_data.get("days") and len(meal_plan_data["days"]) > 0:
+            first_day = meal_plan_data["days"][0].get("date", "")
+            last_day = meal_plan_data["days"][-1].get("date", "")
+            
+            if first_day and last_day:
+                try:
+                    start = datetime.strptime(first_day, "%Y-%m-%d")
+                    end = datetime.strptime(last_day, "%Y-%m-%d")
+                    formatted_text += f"Period: {start.strftime('%B %d, %Y')} to {end.strftime('%B %d, %Y')}\n\n"
+                except:
+                    pass
+        
+        # Format each day - ensure consistent format that can be parsed
+        for day_data in meal_plan_data.get("days", []):
+            date_str = day_data.get("date", "")
             try:
-                import openai
-                openai.api_key = openai_api_key
-                self.client = None
-                self.use_new_api = False
-            except ImportError:
-                raise ImportError("OpenAI package not installed. Please install with: pip install openai")
-        except Exception as e:
-            # Error initializing OpenAI client
-            print(f"Error initializing OpenAI: {e}")
-            import openai
-            openai.api_key = openai_api_key
-            self.client = None
-            self.use_new_api = False
+                date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+                day_header = date_obj.strftime("%A, %B %d, %Y")
+            except:
+                day_header = "Monday, January 1, 2024"  # Fallback
         
-        self.meal_plan = None
-        self.grocery_list = None
-        
-    def get_current_week_dates(self):
-        """Get start and end dates for the current week"""
-        today = datetime.now()
-        start_of_week = today - timedelta(days=today.weekday())
-        end_of_week = start_of_week + timedelta(days=6)
-        return start_of_week, end_of_week
-    
-    def generate_meal_plan(self, start_date=None, end_date=None):
-        """Generate a weekly vegetarian meal plan using OpenAI"""
-        if start_date is None or end_date is None:
-            start_date, end_date = self.get_current_week_dates()
-        
-        # Convert to datetime if they're date objects
-        if hasattr(start_date, 'strftime') and not hasattr(start_date, 'hour'):
-            start_date = datetime.combine(start_date, datetime.min.time())
-        if hasattr(end_date, 'strftime') and not hasattr(end_date, 'hour'):
-            end_date = datetime.combine(end_date, datetime.min.time())
-        
-        prompt = f"""You are a vegetarian meal planning expert specializing in pre-diabetic nutrition. Create a weekly meal plan with the following requirements:
-
-CONTEXT:
-- Focus on vegetarian foods only (no meat, fish, poultry)
-- Optimize for pre-diabetic diet (low glycemic index, high protein, controlled carbs)
-- Include bulk cooking strategies for weekends
-- Date range: {start_date.strftime('%B %d, %Y')} to {end_date.strftime('%B %d, %Y')}
-
-IMPORTANT: Follow this EXACT template format for easy parsing:
-
-# VEGETARIAN MEAL PLAN
-
-## Week Overview
-Start Date: {start_date.strftime('%B %d, %Y')}
-End Date: {end_date.strftime('%B %d, %Y')}
-
-## Daily Meal Plan
-
-{self._generate_daily_plan_template(start_date, end_date)}
-
-## Weekend Bulk Cooking
-[Saturday bulk cooking strategy]
-[Sunday bulk cooking strategy]
-
-## Grocery List
-### Produce
-- Item 1
-- Item 2
-### Proteins
-- Item 1
-- Item 2
-### Grains
-- Item 1
-- Item 2
-### Dairy
-- Item 1
-- Item 2
-### Pantry
-- Item 1
-- Item 2
-### Frozen
-- Item 1
-- Item 2
-
-## Nutrition Summary
-- Weekly Protein: X g
-- Daily Carbs: X g
-- Key Nutrients: Item 1, Item 2
-
-Ensure all meals are:
-1. Low glycemic index
-2. High in plant-based protein
-3. Rich in fiber
-4. Vegetarian-friendly
-5. Suitable for pre-diabetic individuals
-"""
-        
-        try:
-            if self.use_new_api and self.client:
-                # New API call
-                response = self.client.chat.completions.create(
-                    model="gpt-4",
-                    messages=[
-                        {"role": "system", "content": "You are a vegetarian meal planning expert specializing in pre-diabetic nutrition. Always follow the EXACT template format provided."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.7,
-                    max_tokens=2500
-                )
-                self.meal_plan = response.choices[0].message.content
-            else:
-                # Old API call
-                import openai
-                response = openai.ChatCompletion.create(
-                    model="gpt-4",
-                    messages=[
-                        {"role": "system", "content": "You are a vegetarian meal planning expert specializing in pre-diabetic nutrition. Always follow the EXACT template format provided."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    temperature=0.7,
-                    max_tokens=2500
-                )
-                self.meal_plan = response.choices[0].message.content
+            formatted_text += f"--- {day_header} ---\n\n"
             
-            return self.meal_plan
+            # Handle all values to ensure they're strings
+            breakfast = str(day_data.get('breakfast', 'Oatmeal with fruit'))
+            lunch = str(day_data.get('lunch', 'Veggie salad'))
+            dinner = str(day_data.get('dinner', 'Vegetable stir-fry'))
+            snack = str(day_data.get('snack', 'Mixed nuts'))
             
-        except Exception as e:
-            return f"Error generating meal plan: {str(e)}"
-    
-    def _generate_daily_plan_template(self, start_date, end_date):
-        """Generate daily plan template for the given date range"""
-        days = []
-        current_date = start_date
-        day_num = 1
+            # Add meals - ensure each meal has clean, parseable format
+            formatted_text += f"Breakfast: {breakfast}\n"
+            if "breakfast_note" in day_data and day_data['breakfast_note']:
+                formatted_text += f"Note: {str(day_data['breakfast_note'])}\n"
+            
+            formatted_text += f"\nLunch: {lunch}\n"
+            if "lunch_note" in day_data and day_data['lunch_note']:
+                formatted_text += f"Note: {str(day_data['lunch_note'])}\n"
+            
+            formatted_text += f"\nDinner: {dinner}\n"
+            if "dinner_note" in day_data and day_data['dinner_note']:
+                formatted_text += f"Note: {str(day_data['dinner_note'])}\n"
+            
+            formatted_text += f"\nSnack: {snack}\n"
+            if "snack_note" in day_data and day_data['snack_note']:
+                formatted_text += f"Note: {str(day_data['snack_note'])}\n"
+            
+            # Add batch cooking tips if available
+            if "batch_cooking" in day_data and day_data['batch_cooking']:
+                formatted_text += f"\nBatch Cooking: {str(day_data['batch_cooking'])}\n"
+            
+            formatted_text += "\n\n"
         
-        while current_date <= end_date:
-            # Simplified template for easier parsing
-            day_template = f"""### Day {day_num} - {current_date.strftime('%A, %B %d')}
-**Breakfast (7:00 AM)**
-- Meal: [Meal Name]
-- Time: 15-20 minutes
-
-**Snack (10:00 AM)**
-- Meal: [Snack Name]
-- Time: 5 minutes
-
-**Lunch (12:30 PM)**
-- Meal: [Meal Name]
-- Time: 20-25 minutes
-
-**Snack (3:30 PM)**
-- Meal: [Snack Name]
-- Time: 5 minutes
-
-**Dinner (6:30 PM)**
-- Meal: [Meal Name]
-- Time: 25-30 minutes
-"""
-            days.append(day_template)
-            current_date += timedelta(days=1)
-            day_num += 1
+        # Add batch cooking summary if available
+        if "batch_cooking_summary" in meal_plan_data and meal_plan_data['batch_cooking_summary']:
+            formatted_text += f"BATCH COOKING STRATEGIES:\n{str(meal_plan_data['batch_cooking_summary'])}\n\n"
         
-        return "\n".join(days)
-    
+        # Add any general notes from the meal plan
+        if "general_notes" in meal_plan_data and meal_plan_data['general_notes']:
+            formatted_text += f"GENERAL NOTES:\n{str(meal_plan_data['general_notes'])}\n\n"
+        
+        return formatted_text
+        
     def extract_grocery_list(self):
-        """Extract grocery list from the meal plan"""
+        """Generate a grocery list from the meal plan."""
         if not self.meal_plan:
-            return "No meal plan generated yet."
+            return "Please generate a meal plan first."
         
-        # Extract between "## Grocery List" and "## Nutrition Summary"
-        lines = self.meal_plan.split('\n')
-        grocery_section = False
-        grocery_list = []
+        prompt = f"""
+        Based on the following vegetarian meal plan for pre-diabetics, create a comprehensive grocery list
+        organized by category (Produce, Grains, Proteins, Dairy/Alternatives, Pantry Items, Spices, etc.).
         
-        for line in lines:
-            if "## Grocery List" in line:
-                grocery_section = True
-                continue
-            if "## Nutrition Summary" in line:
-                grocery_section = False
-            if grocery_section and line.strip():
-                grocery_list.append(line.strip())
+        Meal Plan:
+        {self.meal_plan}
         
-        self.grocery_list = '\n'.join(grocery_list)
+        Please be thorough and include all ingredients needed for the meals in the plan.
+        Organize items by category for easy shopping.
+        """
+        
+        response = self.client.chat.completions.create(
+            model="gpt-4",  # or your preferred model
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant that creates organized grocery lists."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.7,
+            max_tokens=1500
+        )
+        
+        self.grocery_list = response.choices[0].message.content
         return self.grocery_list
-    
-    def save_to_file(self, filename="meal_plan.txt"):
-        """Save the meal plan to a file"""
-        if not self.meal_plan:
-            return "No meal plan to save."
-        
-        try:
-            with open(filename, 'w') as f:
-                f.write(self.meal_plan)
-            return f"Meal plan saved to {filename}"
-        except Exception as e:
-            return f"Error saving file: {str(e)}"
-    
-    def print_formatted_plan(self):
-        """Print the meal plan in a formatted manner"""
-        if not self.meal_plan:
-            return "No meal plan generated yet."
-        
-        print("=" * 50)
-        print("VEGETARIAN MEAL PLANNER FOR PRE-DIABETIC")
-        print("=" * 50)
-        print(self.meal_plan)
-        print("=" * 50)
-
-def main():
-    # Initialize the meal planner
-    api_key = os.getenv('OPENAI_API_KEY') or input("Enter your OpenAI API key: ")
-    planner = VegetarianMealPlanner(api_key)
-    
-    print("Vegetarian Meal Planner")
-    print("----------------------")
-    print("1. This week")
-    print("2. Custom date range")
-    
-    choice = input("Choose option (1 or 2): ")
-    
-    if choice == "2":
-        start_date_str = input("Enter start date (YYYY-MM-DD): ")
-        end_date_str = input("Enter end date (YYYY-MM-DD): ")
-        
-        try:
-            start_date = datetime.strptime(start_date_str, "%Y-%m-%d")
-            end_date = datetime.strptime(end_date_str, "%Y-%m-%d")
-        except ValueError:
-            print("Invalid date format. Using current week instead.")
-            start_date, end_date = None, None
-    else:
-        start_date, end_date = None, None
-    
-    print(f"Generating meal plan for {start_date.strftime('%B %d, %Y') if start_date else 'this week'} to {end_date.strftime('%B %d, %Y') if end_date else 'end of week'}...")
-    
-    # Generate meal plan
-    plan = planner.generate_meal_plan(start_date, end_date)
-    
-    if plan.startswith("Error"):
-        print(plan)
-        return
-    
-    # Display the meal plan
-    planner.print_formatted_plan()
-    
-    # Extract and display grocery list
-    grocery_list = planner.extract_grocery_list()
-    print("\n" + "=" * 50)
-    print("EXTRACTED GROCERY LIST")
-    print("=" * 50)
-    print(grocery_list)
-    
-    # Save to file with dates in filename
-    if start_date and end_date:
-        filename = f"meal_plan_{start_date.strftime('%Y%m%d')}_to_{end_date.strftime('%Y%m%d')}.txt"
-    else:
-        filename = "meal_plan.txt"
-    
-    save_result = planner.save_to_file(filename)
-    print(f"\n{save_result}")
-    
-    # Optional: Save grocery list separately
-    with open(f"grocery_list_{filename}", "w") as f:
-        f.write(grocery_list)
-    print(f"Grocery list saved to grocery_list_{filename}")
-
-if __name__ == "__main__":
-    main()
