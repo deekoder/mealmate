@@ -1,4 +1,4 @@
-# recipe_agent.py
+# recipe_agent.py with CoT improvements
 import json
 from datetime import datetime
 
@@ -164,28 +164,71 @@ class RecipeAgent:
         
         return {"shopping_list": shopping_list, "servings": people}
     
+    def get_cot_system_prompt(self):
+        """Generate the Chain of Thought system prompt for recipe creation"""
+        return """You are an intelligent recipe generation agent specializing in vegetarian, pre-diabetic friendly recipes. 
+        
+        ALWAYS use Chain of Thought (CoT) reasoning to explain your thinking process transparently. This means you should:
+        
+        1. ANALYZE REQUIREMENTS: First, analyze what the recipe needs to accomplish and what dietary constraints must be considered.
+           - Break down the meal type and its typical ingredients
+           - Identify potential glycemic index concerns in traditional versions
+           - Consider protein, fiber, and micronutrient needs for a balanced vegetarian meal
+        
+        2. PLAN RECIPE APPROACH: Think step-by-step about your approach before diving into details.
+           - What cooking methods would best preserve nutrients?
+           - What ingredient combinations will create complete proteins?
+           - How can you ensure the meal is satisfying while maintaining low glycemic load?
+           - What flavor profile will make this dish appealing?
+        
+        3. TOOL UTILIZATION: Before using any tool, explain WHY you're using it and what you hope to learn.
+           Format your tool reasoning like this:
+           
+           THINKING: [Explain why you need this tool and what you hope to learn]
+           TOOL: [Name of the tool you're using]
+           
+           After receiving tool results, analyze them with:
+           
+           ANALYSIS: [Your interpretation of the results and how they inform your next steps]
+        
+        4. INGREDIENT DECISIONS: For key ingredients, explain:
+           - Why you're choosing them (nutritional benefits, glycemic impact, flavor)
+           - How they contribute to a pre-diabetic friendly profile
+           - Their role in creating a balanced vegetarian meal
+        
+        5. FINAL RECIPE FORMAT: Present your final recipe with clear sections:
+           - Brief introduction explaining the recipe's benefits for pre-diabetic vegetarians
+           - Prep time, cook time, total time, and servings
+           - Ingredients with precise measurements
+           - Detailed, numbered instructions
+           - Nutritional information per serving
+           - Tips for variations or substitutions
+           - Storage recommendations
+        
+        Your goal is not just to create a recipe, but to EDUCATE the user on WHY this recipe works for their dietary needs. Make your reasoning clear and accessible, using specific metrics (glycemic index, fiber content, etc.) when relevant.
+        
+        Use these tools strategically:
+        1. search_recipe_variations - To explore different approaches to the meal
+        2. check_nutritional_values - To confirm the nutritional profile aligns with pre-diabetic needs
+        3. suggest_substitutions - To find better alternatives for higher glycemic ingredients
+        4. generate_shopping_list - To create an organized list of ingredients
+        
+        Remember to share your reasoning process throughout the entire interaction."""
+    
     def generate_recipe(self, meal_name, dietary_requirements="vegetarian, pre-diabetic"):
-        """Main agent function that orchestrates recipe generation"""
-        # Initial system message for the agent
-        system_message = """You are an intelligent recipe generation agent. You have access to tools to:
-        1. Search for recipe variations
-        2. Check nutritional values
-        3. Suggest ingredient substitutions
-        4. Generate shopping lists
+        """Main agent function that orchestrates recipe generation with Chain of Thought reasoning"""
+        # Get the enhanced CoT system message
+        system_message = self.get_cot_system_prompt()
         
-        Use these tools to create the best possible recipe for the user's needs.
-        Always consider pre-diabetic dietary requirements and vegetarian preferences.
-        Think step by step and use tools when needed."""
-        
-        # Start the conversation
+        # Start the conversation with a clear request for CoT reasoning
         messages = [
             {"role": "system", "content": system_message},
-            {"role": "user", "content": f"I need a recipe for {meal_name} that's suitable for a vegetarian pre-diabetic diet."}
+            {"role": "user", "content": f"Please create a recipe for {meal_name} that's suitable for a vegetarian pre-diabetic diet. Use Chain of Thought reasoning to explain your process and thinking for each step of recipe development."}
         ]
         
         try:
             if self.use_new_api and self.client:
-                # First interaction - decide what tools to use
+                # First interaction - decide what tools to use with CoT reasoning
                 response = self.client.chat.completions.create(
                     model="gpt-4",
                     messages=messages,
@@ -224,8 +267,22 @@ class RecipeAgent:
                         tool_choice="auto"
                     )
                 
-                # Final recipe generation
-                final_recipe = response.choices[0].message.content
+                # Final recipe generation with explicit request for CoT summary
+                messages.append(response.choices[0].message)
+                
+                # Add a final prompt to ensure CoT reasoning is included
+                messages.append({
+                    "role": "user", 
+                    "content": "Please provide the final recipe with your complete Chain of Thought reasoning. Make sure to summarize your thought process about the ingredient choices, cooking methods, and how this recipe specifically addresses pre-diabetic dietary needs while remaining flavorful and nutritionally complete for vegetarians."
+                })
+                
+                # Get final response with CoT reasoning
+                final_response = self.client.chat.completions.create(
+                    model="gpt-4",
+                    messages=messages
+                )
+                
+                final_recipe = final_response.choices[0].message.content
                 
                 # Store conversation history
                 tool_calls_used = []
@@ -244,7 +301,15 @@ class RecipeAgent:
                 return final_recipe
             else:
                 # Fallback to simpler recipe generation without tools for old API
+                # But still using CoT reasoning
                 prompt = f"""Generate a detailed vegetarian recipe for: {meal_name}
+
+Please use Chain of Thought reasoning throughout your response:
+
+1. First, analyze what makes a good pre-diabetic, vegetarian {meal_name}
+2. Explain your thinking about key ingredient choices and their glycemic impact
+3. Discuss your reasoning for cooking methods and how they affect nutrition
+4. Explain why this recipe is suitable for pre-diabetic needs
 
 Requirements:
 - Vegetarian (no meat, fish, poultry)
@@ -253,19 +318,20 @@ Requirements:
 - List ingredients with measurements
 - Provide step-by-step instructions
 - Include nutrition information
+- Explain the glycemic impact of key ingredients
 
-Format the response as a complete recipe."""
+Format the response as a complete recipe with your reasoning clearly shown."""
                 
                 try:
                     import openai
                     response = openai.ChatCompletion.create(
                         model="gpt-4",
                         messages=[
-                            {"role": "system", "content": "You are a vegetarian cooking expert specializing in pre-diabetic nutrition."},
+                            {"role": "system", "content": self.get_cot_system_prompt()},
                             {"role": "user", "content": prompt}
                         ],
                         temperature=0.7,
-                        max_tokens=800
+                        max_tokens=1200  # Increased to accommodate CoT reasoning
                     )
                     return response.choices[0].message.content
                 except Exception as e:
